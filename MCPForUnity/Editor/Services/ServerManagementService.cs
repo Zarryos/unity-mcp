@@ -390,29 +390,35 @@ namespace MCPForUnity.Editor.Services
 
         public bool StopManagedLocalHttpServer()
         {
-            if (!TryGetLocalHttpServerHandshake(out var pidFilePath, out _))
+            // Stops the server THIS Editor launched, and nothing else: the PID its pidfile names,
+            // and only while that process still carries this Editor's instance token. No port
+            // heuristic here. A handshake outlives the server it describes (it sits in EditorPrefs),
+            // so an Editor that later attached to a server somebody else started used to fall
+            // through to "whatever listens on the port and looks like an MCP server" and stop that
+            // one on quit, with every client connected to it.
+            if (!TryGetLocalHttpServerHandshake(out var pidFilePath, out var instanceToken))
             {
                 return false;
             }
 
-            int port = 0;
-            if (!TryGetPortFromPidFilePath(pidFilePath, out port) || port <= 0)
-            {
-                string baseUrl = HttpEndpointUtility.GetLocalBaseUrl();
-                if (IsLocalUrl(baseUrl)
-                    && Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri)
-                    && uri.Port > 0)
-                {
-                    port = uri.Port;
-                }
-            }
-
-            if (port <= 0)
+            if (!TryReadPidFromPidFile(pidFilePath, out int pid) || pid <= 0 || pid == GetCurrentProcessIdSafe())
             {
                 return false;
             }
 
-            return StopLocalHttpServerInternal(quiet: true, portOverride: port, allowNonLocalUrl: true);
+            if (!TryProcessCommandLineContainsInstanceToken(pid, instanceToken, out bool tokenMatches) || !tokenMatches)
+            {
+                return false;
+            }
+
+            if (!TerminateProcess(pid))
+            {
+                return false;
+            }
+
+            try { DeletePidFile(pidFilePath); } catch { }
+            ClearLocalServerPidTracking();
+            return true;
         }
 
         public bool IsLocalHttpServerRunning()

@@ -219,10 +219,15 @@ namespace MCPForUnity.Editor.Services
                         return;
                     }
 
-                    // Check if server is already reachable (e.g. user started it externally).
-                    if (!MCPServiceLocator.Server.IsLocalHttpServerReachable())
+                    // Check if a server is already there (e.g. started externally). The reachability
+                    // probe is a 250ms connect, and an Editor that is starting up is exactly when a
+                    // healthy server misses it: StartLocalHttpServer would then stop that server and
+                    // launch another, dropping every client connected to it. So a server process that
+                    // owns the port counts as "there" too, and the wait below connects once it answers.
+                    var server = MCPServiceLocator.Server;
+                    if (!server.IsLocalHttpServerReachable() && !server.IsLocalHttpServerRunning())
                     {
-                        bool serverStarted = MCPServiceLocator.Server.StartLocalHttpServer(quiet: true);
+                        bool serverStarted = server.StartLocalHttpServer(quiet: true);
                         if (!serverStarted)
                         {
                             McpLog.Warn("[HTTP Auto-Start] Failed to start local HTTP server");
